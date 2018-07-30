@@ -1,5 +1,5 @@
 
-grammar test13;
+grammar test12;
 
 entry: a;
 a: b c;

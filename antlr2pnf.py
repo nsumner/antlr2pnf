@@ -80,6 +80,7 @@ def starts_with(haystack, needle):
 class GrammarBuilder:
     LEFT = 1
     RIGHT = 2
+    OPTION_WORK_THRESHOLD = 1000000
 
     def __init__(self):
         self.nonterminals = {}
@@ -176,6 +177,8 @@ class GrammarBuilder:
         digraph = nx.DiGraph()
         for name, derivations in self.nonterminals.items():
             for derivation in derivations:
+                if len(derivation) < 1:
+                    continue
                 symbol, remainder = self.directed_split(direction, derivation)
                 if symbol in self.nonterminals.keys():
                     digraph.add_edge(name, symbol)
@@ -191,22 +194,42 @@ class GrammarBuilder:
         self.nonterminals = self.separate_quantified(self.nonterminals)
 
     def transform(self, direction, grammar):
+        # We actually need to remove all sided recursion (including direct)
+        # from the previous rules that are considered in order to maintain
+        # the invariant that only direct sided recursion of the current rule
+        # remains. We do this by making a copy of the grammar with no sided
+        # recursion and inlining that for indirect recursion removal.
+        nonrecursive_grammar = {}
+        fresh_rules = {}
+        def remove_direct_recursion(name):
+            tails, bases = self.split_direct_recursion(direction, grammar, name)
+            new_rule = 'pnf_nonrecursive_{}_{}'.format(name, direction)
+            if len(tails) == 0:
+                return grammar[name]
+            fresh_rules[new_rule] = tuple(self.directed_merge(direction, tail, (new_rule,))
+                                          for tail in tails) + ((),)
+            return tuple(self.directed_merge(direction, base, (new_rule,))
+                         for base in bases)
+
         # Instead of a explicit fixpoint computation, we use Paull's algorithm
         # (also part of GNF conversion) for removing the indirect recursion.
         # See: Removing Left Recursion from Context-Free Grammars, Robert Moore.
+        # NOTE: This captures variables of the loop below.
         def to_rules(rule):
             symbol, remainder = self.directed_split(direction, rule)
-            if symbol not in grammar or id_to_name[j] != symbol:
+            if symbol not in grammar or names[j] != symbol:
                 return (rule,)
             else:
                 return tuple(self.directed_merge(direction, inlined, remainder)
-                             for inlined in grammar[symbol])
+                             for inlined in nonrecursive_grammar[symbol])
 
-        id_to_name = {i: name for i, name in enumerate(grammar.keys())}
-        for i in range(len(grammar)):
+        names = list(grammar.keys())
+        for i, name in enumerate(names):
             for j in range(i):
-                name = id_to_name[i]
                 grammar[name] = flatten(map(to_rules, grammar[name]))
+            nonrecursive_grammar[name] = remove_direct_recursion(name)
+
+        grammar.update(fresh_rules)
         return grammar
 
     def quantifier(self, direction, grammar):
@@ -240,9 +263,14 @@ class GrammarBuilder:
             rules = list(map(add_plus, rules))
             rule_indices = list(range(len(rules)))
             rule_indices.sort(key=lambda x: len(rules[x]))
-            print(datetime.datetime.now(),
-                  'Computing Options (?). This can take some time.',
-                  'You may try rerunning the script for better RNG.')
+
+            work = sum((len(rules)-i)*len(rule) for i, rule in enumerate(rules))
+            if work > self.OPTION_WORK_THRESHOLD:
+                print(datetime.datetime.now(),
+                      'Computing Options (?). This can take some time.',
+                      'You may try rerunning the script for better RNG.',
+                      'Work estimate: {}'.format(work), sep='\n')
+
             # This next section can certainly be done more efficiently.
             # However, just rerunning the script usually solves the problem, so
             # it isn't really a priority.
@@ -275,16 +303,8 @@ class GrammarBuilder:
         return grammar
 
     def introduce_star(self, direction, grammar, nonterminal):
-        rules = grammar[nonterminal]
-        if nonterminal == 'b': print('START', rules)
-        A = set()
-        B = set()
-        for rule in rules:
-            symbol, remainder = self.directed_split(direction, rule)
-            if symbol == nonterminal:
-                A.add(remainder)
-            else:
-                B.add(rule)
+        # This is just classic direct recursion elimination
+        A, B = self.split_direct_recursion(direction, grammar, nonterminal)
 
         # If there were no recursive rules, then the rest is unnecessary.
         if len(A) == 0:
@@ -305,7 +325,6 @@ class GrammarBuilder:
             rules.append(self.directed_merge(direction, b, (u2 + '*',)))
         grammar[nonterminal] = rules
         grammar.update(new_forms)
-        if nonterminal == 'b': print('FINISH', rules)
 
     def separate_quantified(self, grammar):
         fresh_rules = {}
@@ -326,6 +345,17 @@ class GrammarBuilder:
         grammar.update(fresh_rules)
         return grammar
 
+    def split_direct_recursion(self, direction, grammar, nonterminal):
+        recursive_tails = set()
+        bases = []
+        for rule in grammar[nonterminal]:
+            symbol, remainder = self.directed_split(direction, rule)
+            if symbol == nonterminal:
+                recursive_tails.add(remainder)
+            else:
+                bases.append(rule)
+        return recursive_tails, bases
+
     def star_split(self, rule):
         for i, element in enumerate(rule):
             if element[-1] == '*':
@@ -340,6 +370,8 @@ class GrammarBuilder:
         return None, None
 
     def directed_split(self, direction, derivation):
+        if len(derivation) == 0:
+            return None, None
         if direction == self.LEFT:
             return derivation[0], derivation[1:]
         elif direction == self.RIGHT:
