@@ -68,7 +68,7 @@ def flatten(iterable):
 def ends_with(haystack, needle):
     if len(haystack) < len(needle):
         return False
-    return haystack[-len(needle):] == needle
+    return haystack[len(haystack)-len(needle):] == needle
 
 
 def starts_with(haystack, needle):
@@ -278,9 +278,10 @@ class GrammarBuilder:
                 if not rules[i]:
                     continue
                 for j in range(i):
-                    if not rules[j] or len(rules[i]) >= len(rules[j]):
+                    if not rules[j]:
                         continue
-                    prefix, suffix = self.wrap_split(rules[j], rules[i])
+                    small, large = sorted((rules[i], rules[j]), key=len)
+                    prefix, suffix = self.wrap_split(small, large)
                     if prefix == None:
                         continue
                     base = 'pnf_option_' + nonterminal
@@ -362,7 +363,7 @@ class GrammarBuilder:
                 return rule[:i], rule[i][:-1], rule[i+1:]
         return None, None, None
 
-    def wrap_split(self, larger, smaller):
+    def wrap_split(self, smaller, larger):
         for i in range(len(smaller) + 1):
             front, back = smaller[:i], smaller[i:]
             if starts_with(larger, front) and ends_with(larger, back):
