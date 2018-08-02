@@ -285,7 +285,7 @@ class GrammarBuilder:
                     if prefix == None:
                         continue
                     base = 'pnf_option_' + nonterminal
-                    u4_rhs = (rules[j][len(prefix):-len(suffix)],)
+                    u4_rhs = (large[len(prefix):len(large)-len(suffix)],)
                     u4, add_u4 = self.make_fresh_nonterminal(base, u4_rhs)
                     u3_rhs = ((u4 + '?',),)
                     u3, add_u3 = self.make_fresh_nonterminal(base, u3_rhs)
