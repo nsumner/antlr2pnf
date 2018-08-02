@@ -1,6 +1,6 @@
 
 grammar test14;
 
-entry : declarator: 'a' b* ;
+entry : 'a' b* ;
 b : 'b';
 
